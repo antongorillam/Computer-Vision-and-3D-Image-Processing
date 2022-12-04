@@ -232,31 +232,6 @@ class ANN:
         self.history['acc_train'].append(acc_train)
         self.history['acc_test'].append(acc_test)
 
-def plotLostVEpochs(train, test, iters_list, metric, x_axis, title_string, dir, y_lim=[0,2]):
-	[y_min, y_max] = y_lim
-	plt.figure()
-	if test != []:
-        
-		plt.plot(iters_list, train, label=f'Training {metric}', color='g')
-		plt.plot(iters_list, test, label=f'Validation {metric}', color='r')
-	else:
-		plt.plot(train, label=f'{metric}', color='r')
-
-	plt.title(title_string)
-	plt.xlabel(x_axis)	
-	plt.ylabel(metric)
-	plt.ylim(bottom=0)
-	plt.legend()
-	plt.grid()
-	filename = title_string
-	filename = filename.replace(":", "")
-	filename = filename.replace(",", "")
-	filename = filename.replace("\n", "")
-	filename = filename.replace(" ", "_")
-	filename = filename.replace(".", "")
-	filename = filename = filename + ".png"
-	plt.savefig(dir + filename)
-
 def main():
     from mnist import MNIST
     import seaborn as sns
