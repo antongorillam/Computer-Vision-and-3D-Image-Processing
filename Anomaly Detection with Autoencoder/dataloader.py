@@ -1,9 +1,9 @@
 from mnist import MNIST
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split 
 import torch    
 
+NOISE_BOUND = 0.3
 IMG_DIM = 28
 MNIST_PATH = r"/home/anton/KTH/year5/5LSH0/mnist"
 
@@ -12,57 +12,107 @@ class DataLoader():
     object for loading MNIST dataset
     """
     def __init__(self):
-        self.train_data = None
-        self.val_data = None
-        self.test_data = None
-
-
-    def prepareMNIST(self, mnist_path):
-        mndata = MNIST(mnist_path)
-        train_images, train_labels = mndata.load_training()
-        test_images, test_labels = mndata.load_testing()
-
-        train_images, train_labels = np.array(train_images), np.array(train_labels)
-        test_images, test_labels = np.array(test_images), np.array(test_labels)
-
-        train_images, val_images, train_labels, val_labels = train_test_split(train_images, train_labels, test_size=0.10)
-
-        n_train, n_val = train_images.shape[0], val_images.shape[0]
-        train_images = train_images.reshape(n_train, 1, IMG_DIM, IMG_DIM)
-        val_images = val_images.reshape(n_val, 1, IMG_DIM, IMG_DIM)
-        test_images = test_images.reshape(test_images.shape[0], 1, IMG_DIM, IMG_DIM)
-
-        train_images, val_images, test_images = torch.from_numpy(train_images).type(torch.FloatTensor), torch.from_numpy(val_images).type(torch.FloatTensor), torch.from_numpy(test_images).type(torch.FloatTensor)
-        train_labels, val_labels, test_labels = train_labels.astype(int), val_labels.astype(int), test_labels.astype(int)
-        train_labels, val_labels, test_labels = torch.from_numpy(train_labels), torch.from_numpy(val_labels), torch.from_numpy(test_labels) 
+        self.normal_train = None
+        self.normal_data = None
+        self.anomaly_data = None
         
-        self.train_data = [train_images, train_images]
-        self.val_data = [val_images, val_images]
-        self.test_data = [test_images, test_images]
+    def addNoise(self, image, noise_bound=0.3):
+        noisy_image = image.copy()
+
+        for (j, _) in enumerate(noisy_image):
+            if np.random.uniform() <= noise_bound:
+                noise = np.random.randint(255)
+                noisy_image[j] = noise
+
+        # fig = plt.figure()
+        # fig.add_subplot(1, 2, 1)
+        # plt.imshow(np.array(image).reshape(IMG_DIM, IMG_DIM))
+        # fig.add_subplot(1, 2, 2)
+        # plt.imshow(np.array(noisy_image).reshape(IMG_DIM, IMG_DIM))
+        # noise_bound = str(noise_bound).replace(".","")
+        # plt.savefig(f"Orignal_vs_corrupt_MNIST_noise_lvl_{noise_bound}_{np.random.randint(4)}.")
+        # plt.close()
+
+        return noisy_image
+
+    def prepareMNIST(self, mnist_path, num_train_data, num_normal_data, num_anomaly_data, corrupt_train=None):
+        mndata = MNIST(mnist_path)
+        train_images, _ = mndata.load_training()
+
+        normal_train = train_images[:num_train_data]
+        normal_data = train_images[num_train_data:num_train_data + num_normal_data] 
+        anomaly_data = train_images[num_train_data + num_normal_data:num_train_data + num_normal_data + num_anomaly_data] 
+
+        normal_train = np.array(normal_train)
+        # Corrupt training data
+        if corrupt_train!=None:
+            corrupt_data = np.array([self.addNoise((image), noise_bound=NOISE_BOUND) for image in normal_train])
+            num_corrupt_data = int(len(normal_train) * corrupt_train)
+            normal_train = np.concatenate([corrupt_data[:num_corrupt_data], normal_train[num_corrupt_data:]], axis=0)
+        
+        normal_data = np.array(normal_data)
+        anomaly_data = np.array([self.addNoise((image), noise_bound=NOISE_BOUND) for image in anomaly_data])
+
+        # Reshape and noramlize data
+        normal_train = normal_train.reshape(num_train_data, 1, IMG_DIM, IMG_DIM) / 255
+        normal_data = normal_data.reshape(num_normal_data, 1, IMG_DIM, IMG_DIM) / 255
+        anomaly_data = anomaly_data.reshape(anomaly_data.shape[0], 1, IMG_DIM, IMG_DIM) / 255
+
+        normal_train = torch.from_numpy(normal_train).type(torch.FloatTensor)
+        normal_data = torch.from_numpy(normal_data).type(torch.FloatTensor)
+        anomaly_data = torch.from_numpy(anomaly_data).type(torch.FloatTensor)
+
+        self.normal_train = [
+            normal_train, 
+            torch.ones(num_train_data, dtype=torch.int64)]
+        self.normal_data = [
+            normal_data, 
+            torch.ones(num_normal_data, dtype=torch.int64)]
+        self.anomaly_data = [
+            anomaly_data, 
+            torch.zeros(num_anomaly_data, dtype=torch.int64)]
 
     def getDataLoaderMNIST(self, batch_size):
-        train_images, train_labels = self.train_data
-        val_images, val_labels = self.val_data
-        test_images, test_labels = self.test_data
+        train_images, train_labels = self.normal_train
+        normal_images, normal_labels = self.normal_data
+        anomaly_images, anomaly_labels = self.anomaly_data
 
-        train = torch.utils.data.TensorDataset(train_images,train_labels)
-        val = torch.utils.data.TensorDataset(val_images, val_labels)
-        test = torch.utils.data.TensorDataset(test_images, test_labels)
+        train = torch.utils.data.TensorDataset(train_images, train_labels)
+        normal = torch.utils.data.TensorDataset(normal_images, normal_labels)
+        anomaly = torch.utils.data.TensorDataset(anomaly_images, anomaly_labels)
 
         train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(val, batch_size=batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size, shuffle=True)
+        normal_loader = torch.utils.data.DataLoader(normal, batch_size=batch_size, shuffle=True)
+        anomaly_loader = torch.utils.data.DataLoader(anomaly, batch_size=batch_size, shuffle=True)
         
-        return train_loader, val_loader, test_loader
+        return train_loader, normal_loader, anomaly_loader
 
 if __name__ == '__main__':
     dl = DataLoader()
-    dl.prepareMNIST(mnist_path=MNIST_PATH)
-    train_image = dl.train_data
-    img_idx = np.random.randint(len(train_image))
-    # plt.imshow(train_image[img_idx].reshape(IMG_DIM, IMG_DIM))
+    dl.prepareMNIST(
+        mnist_path=MNIST_PATH,
+        num_train_data=100,
+        num_normal_data=10,
+        num_anomaly_data=10,
+        corrupt_train=0.5
+    )
+    train_loader, normal_loader, anomaly_loader = dl.getDataLoaderMNIST(10)
+    train_images = dl.normal_train[0]
+    normal_images = dl.normal_data[0]
+    anomaly_images = dl.anomaly_data[0]
 
-    train_loader, val_loader, test_loader = dl.getDataLoaderMNIST(batch_size=100)
-    for i, (images, labels) in enumerate(train_loader):
-        print(images)
-        break
+    for i, img in enumerate(train_images):
+        # print(i)
+        # img_idx = np.random.randint(len(normal_images))
+        plt.imshow(img.reshape(IMG_DIM, IMG_DIM))
+        plt.show()
+
+        # img_idx = np.random.randint(len(anomaly_images))
+        # plt.imshow(anomaly_images[img_idx].reshape(IMG_DIM, IMG_DIM))
+        # plt.show()
+
+
+    # train_loader, val_loader, test_loader = dl.getDataLoaderMNIST(batch_size=100)
+    # for i, (images, labels) in enumerate(train_loader):
+    #     print(images)
+    #     break
