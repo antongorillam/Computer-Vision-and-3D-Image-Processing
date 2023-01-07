@@ -284,7 +284,8 @@ def main():
     loss_test= ann.history['loss_test']
     acc_train= ann.history['acc_train']
     acc_test= ann.history['acc_test']
-
+    print(f"acc_train: {acc_train[-1]}")
+    print(f"acc_test: {acc_test[-1]}")
     plt.figure()
     sns.set_style("darkgrid")
     sns.lineplot(y=acc_train, x=[i for i, _ in enumerate(acc_train)])
